@@ -1,6 +1,5 @@
 from .model import *
 
-
 class sep_MLP(nn.Module):
     def __init__(self,dim,len_feats,categories):
         super(sep_MLP, self).__init__()
@@ -18,7 +17,7 @@ class sep_MLP(nn.Module):
             y_pred.append(pred)
         return y_pred
 
-class SAINT_vision(nn.Module):
+class SAINT(nn.Module):
     def __init__(
         self,
         *,
@@ -32,7 +31,6 @@ class SAINT_vision(nn.Module):
         mlp_hidden_mults = (4, 2),
         mlp_act = None,
         num_special_tokens = 0,
-        continuous_mean_std = None,
         attn_dropout = 0.,
         ff_dropout = 0.,
         cont_embeddings = 'MLP',
@@ -52,11 +50,13 @@ class SAINT_vision(nn.Module):
         # create category embeddings table
 
         self.num_special_tokens = num_special_tokens
-        self.total_tokens = categories[-1] + 256
+        self.total_tokens = self.num_unique_categories + num_special_tokens
 
         # for automatically offsetting unique category ids to the correct position in the categories embedding table
 
-        categories_offset = torch.tensor(np.append(np.repeat(0, self.num_categories-1),[256]))
+        categories_offset = F.pad(torch.tensor(list(categories)), (1, 0), value = num_special_tokens)
+        categories_offset = categories_offset.cumsum(dim = -1)[:-1]
+        
         self.register_buffer('categories_offset', categories_offset)
 
 
@@ -69,6 +69,10 @@ class SAINT_vision(nn.Module):
 
         if self.cont_embeddings == 'MLP':
             self.simple_MLP = nn.ModuleList([simple_MLP([1,100,self.dim]) for _ in range(self.num_continuous)])
+            input_size = (dim * self.num_categories)  + (dim * num_continuous)
+            nfeats = self.num_categories + num_continuous
+        elif self.cont_embeddings == 'pos_singleMLP':
+            self.simple_MLP = nn.ModuleList([simple_MLP([1,100,self.dim]) for _ in range(1)])
             input_size = (dim * self.num_categories)  + (dim * num_continuous)
             nfeats = self.num_categories + num_continuous
         else:
@@ -105,17 +109,22 @@ class SAINT_vision(nn.Module):
         all_dimensions = [input_size, *hidden_dimensions, dim_out]
         
         self.mlp = MLP(all_dimensions, act = mlp_act)
-        self.embeds = nn.Embedding(self.total_tokens, self.dim) 
+        self.embeds = nn.Embedding(self.total_tokens, self.dim) #.to(device)
 
-        cat_mask_offset = torch.tensor(np.append(np.repeat(0, self.num_categories-1),[2]))
-        con_mask_offset = torch.empty(0)
+        cat_mask_offset = F.pad(torch.Tensor(self.num_categories).fill_(2).type(torch.int8), (1, 0), value = 0) 
+        cat_mask_offset = cat_mask_offset.cumsum(dim = -1)[:-1]
+
+        con_mask_offset = F.pad(torch.Tensor(self.num_continuous).fill_(2).type(torch.int8), (1, 0), value = 0) 
+        con_mask_offset = con_mask_offset.cumsum(dim = -1)[:-1]
 
         self.register_buffer('cat_mask_offset', cat_mask_offset)
         self.register_buffer('con_mask_offset', con_mask_offset)
 
-        self.mask_embeds_cat = nn.Embedding(4, self.dim)
-        self.mask_embeds_cont = nn.Embedding(4, self.dim)
-        self.pos_encodings = nn.Embedding(self.num_categories, self.dim)
+        self.mask_embeds_cat = nn.Embedding(self.num_categories*2, self.dim)
+        self.mask_embeds_cont = nn.Embedding(self.num_continuous*2, self.dim)
+        self.single_mask = nn.Embedding(2, self.dim)
+        self.pos_encodings = nn.Embedding(self.num_categories+ self.num_continuous, self.dim)
+        
         if self.final_mlp_style == 'common':
             self.mlp1 = simple_MLP([dim,(self.total_tokens)*2, self.total_tokens])
             self.mlp2 = simple_MLP([dim ,(self.num_continuous), 1])
@@ -125,11 +134,14 @@ class SAINT_vision(nn.Module):
             self.mlp2 = sep_MLP(dim,self.num_continuous,np.ones(self.num_continuous).astype(int))
 
 
-        self.mlpfory = simple_MLP([dim ,100, y_dim])
+        self.mlpfory = simple_MLP([dim ,1000, y_dim])
+        self.pt_mlp = simple_MLP([dim*(self.num_continuous+self.num_categories) ,6*dim*(self.num_continuous+self.num_categories)//5, dim*(self.num_continuous+self.num_categories)//2])
+        self.pt_mlp2 = simple_MLP([dim*(self.num_continuous+self.num_categories) ,6*dim*(self.num_continuous+self.num_categories)//5, dim*(self.num_continuous+self.num_categories)//2])
 
         
     def forward(self, x_categ, x_cont):
+        
         x = self.transformer(x_categ, x_cont)
-        y_reps = x[:,self.num_categories-1,:]
-        y_outs = self.mlpfory(y_reps)
-        return y_outs
+        cat_outs = self.mlp1(x[:,:self.num_categories,:])
+        con_outs = self.mlp2(x[:,self.num_categories:,:])
+        return cat_outs, con_outs 

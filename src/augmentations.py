@@ -2,7 +2,10 @@ import torch
 import numpy as np
 
 
-def embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model,vision_dset=False):
+def embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model):
+    """
+    This function embeds both categorical and continuous data.
+    """
     device = x_cont.device
     x_categ = x_categ + model.categories_offset.type_as(x_categ)
     x_categ_enc = model.embeds(x_categ)
@@ -25,13 +28,6 @@ def embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model,vision_dset=False)
     con_mask_temp = model.mask_embeds_cont(con_mask_temp)
     x_categ_enc[cat_mask == 0] = cat_mask_temp[cat_mask == 0]
     x_cont_enc[con_mask == 0] = con_mask_temp[con_mask == 0]
-
-    if vision_dset:
-        
-        pos = np.tile(np.arange(x_categ.shape[-1]),(x_categ.shape[0],1))
-        pos =  torch.from_numpy(pos).to(device)
-        pos_enc =model.pos_encodings(pos)
-        x_categ_enc+=pos_enc
 
     return x_categ, x_categ_enc, x_cont_enc
 

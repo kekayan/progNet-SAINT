@@ -1,19 +1,15 @@
 import torch
 from torch import nn
-
-from baselines import DataSetCatCon
-from torch.utils.data import DataLoader
 import torch.optim as optim
-from augmentations import embed_data_mask
-from augmentations import add_noise
+from torch.utils.data import DataLoader
 
-import os
-import numpy as np
+from data import DataSetCatCon
+from augmentations import embed_data_mask
+
 
 def SAINT_pretrain(model,cat_idxs,X_train,y_train,continuous_mean_std,opt,device):
     train_ds = DataSetCatCon(X_train, y_train, cat_idxs,opt.dtask, continuous_mean_std)
-    trainloader = DataLoader(train_ds, batch_size=opt.batchsize, shuffle=True,num_workers=4)
-    vision_dset = opt.vision_dset
+    trainloader = DataLoader(train_ds, batch_size=opt.batchsize, shuffle=True,num_workers=2)
     optimizer = optim.AdamW(model.parameters(),lr=0.0001)
     pt_aug_dict = {
         'noise_type' : opt.pt_aug,
@@ -33,14 +29,14 @@ def SAINT_pretrain(model,cat_idxs,X_train,y_train,continuous_mean_std,opt,device
             if 'cutmix' in opt.pt_aug:
                 from augmentations import add_noise
                 x_categ_corr, x_cont_corr = add_noise(x_categ,x_cont, noise_params = pt_aug_dict)
-                _ , x_categ_enc_2, x_cont_enc_2 = embed_data_mask(x_categ_corr, x_cont_corr, cat_mask, con_mask,model,vision_dset)
+                _ , x_categ_enc_2, x_cont_enc_2 = embed_data_mask(x_categ_corr, x_cont_corr, cat_mask, con_mask,model)
             else:
-                _ , x_categ_enc_2, x_cont_enc_2 = embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model,vision_dset)
-            _ , x_categ_enc, x_cont_enc = embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model,vision_dset)
+                _ , x_categ_enc_2, x_cont_enc_2 = embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model)
+            _ , x_categ_enc, x_cont_enc = embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model)
             
             if 'mixup' in opt.pt_aug:
                 from augmentations import mixup_data
-                x_categ_enc_2, x_cont_enc_2 = mixup_data(x_categ_enc_2, x_cont_enc_2 , lam=opt.mixup_lam)
+                x_categ_enc_2, x_cont_enc_2 = mixup_data(x_categ_enc_2, x_cont_enc_2 , lam=opt.mixup_lam, use_cuda=True if device == 'cuda' else False) 
             loss = 0
             if 'contrastive' in opt.pt_tasks:
                 aug_features_1  = model.transformer(x_categ_enc, x_cont_enc)
@@ -93,6 +89,3 @@ def SAINT_pretrain(model,cat_idxs,X_train,y_train,continuous_mean_std,opt,device
 
     print('END OF PRETRAINING!')
     return model
-        # if opt.active_log:
-        #     wandb.log({'pt_epoch': epoch ,'pretrain_epoch_loss': running_loss
-        #     })
