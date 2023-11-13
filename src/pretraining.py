@@ -18,6 +18,11 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
     }
     criterion1 = nn.CrossEntropyLoss()
     criterion2 = nn.MSELoss()
+
+    best_val_loss = 100000
+    patience = 5
+    early_stop_counter = 0
+
     print("Pretraining begins!")
     for epoch in range(opt.pretrain_epochs):
         model.train()
@@ -145,7 +150,19 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
                     n_cat = x_categ.shape[-1]
                     for j in range(1,n_cat):
                         l1+= criterion1(cat_outs[j],x_categ[:,j])
-                    val_loss += opt.lam2*l1 + opt.lam3*l2    
+                    val_loss += opt.lam2*l1 + opt.lam3*l2
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            checkpoint = {'model': model, 'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()}
+            torch.save(checkpoint, opt.save_path)
+            print('Model Checkpoint Saved!')
+            early_stop_counter = 0
+        else:
+            early_stop_counter+=1
+            print('Early Stopping Counter: ',early_stop_counter)
+            if early_stop_counter > patience:
+                print('Early Stopping!')
+                break    
         
         print(f'Epoch: {epoch}, Running Loss: {running_loss} , Val Loss: {val_loss}')
 
