@@ -1,1 +1,1 @@
-from models.pretrainmodel import SAINT
+from models.saint import SAINT

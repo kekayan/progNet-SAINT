@@ -1,4 +1,8 @@
-from .model import *
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from .utils import simple_MLP, Transformer, RowColTransformer, MLP
 
 class sep_MLP(nn.Module):
     def __init__(self,dim,len_feats,categories):
