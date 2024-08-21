@@ -153,6 +153,7 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
                     val_loss += opt.lam2*l1 + opt.lam3*l2
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            model.eval()
             checkpoint = {'model': model, 'state_dict': model.state_dict(),'optimizer' : optimizer.state_dict()}
             torch.save(checkpoint, opt.save_path)
             print('Model Checkpoint Saved!')
