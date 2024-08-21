@@ -3,13 +3,13 @@ from torch import nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from data import DataSetCatCon
 from augmentations import embed_data_mask
 
 
 def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
-    trainloader = DataLoader(train_ds, batch_size=opt.batchsize, shuffle=True,num_workers=2)
-    validloader = DataLoader(valid_ds, batch_size=opt.batchsize, shuffle=True,num_workers=2) 
+    workers = 2
+    trainloader = DataLoader(train_ds, batch_size=opt.batchsize, shuffle=True,num_workers=workers)
+    validloader = DataLoader(valid_ds, batch_size=opt.batchsize, shuffle=True,num_workers=workers) 
 
     optimizer = optim.AdamW(model.parameters(),lr=0.0001)
     pt_aug_dict = {
@@ -20,7 +20,7 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
     criterion2 = nn.MSELoss()
 
     best_val_loss = 100000
-    patience = 5
+    patience = 10
     early_stop_counter = 0
 
     print("Pretraining begins!")
@@ -43,6 +43,7 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
             if 'mixup' in opt.pt_aug:
                 from augmentations import mixup_data
                 x_categ_enc_2, x_cont_enc_2 = mixup_data(x_categ_enc_2, x_cont_enc_2 , lam=opt.mixup_lam, use_cuda=True if device == 'cuda' else False) 
+            
             loss = 0
             if 'contrastive' in opt.pt_tasks:
                 aug_features_1  = model.transformer(x_categ_enc, x_cont_enc)
@@ -63,6 +64,7 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
                 loss_1 = criterion1(logits_per_aug1, targets)
                 loss_2 = criterion1(logits_per_aug2, targets)
                 loss   = opt.lam0*(loss_1 + loss_2)/2
+
             elif 'contrastive_sim' in opt.pt_tasks:
                 aug_features_1  = model.transformer(x_categ_enc, x_cont_enc)
                 aug_features_2 = model.transformer(x_categ_enc_2, x_cont_enc_2)
@@ -72,6 +74,7 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
                 aug_features_2 = model.pt_mlp2(aug_features_2)
                 c1 = aug_features_1 @ aug_features_2.t()
                 loss+= opt.lam1*torch.diagonal(-1*c1).add_(1).pow_(2).sum()
+
             if 'denoising' in opt.pt_tasks:
                 cat_outs, con_outs = model(x_categ_enc_2, x_cont_enc_2)
                 # if con_outs.shape(-1) != 0:
@@ -86,10 +89,13 @@ def SAINT_pretrain(model,train_ds, valid_ds,opt,device):
                 n_cat = x_categ.shape[-1]
                 for j in range(1,n_cat):
                     l1+= criterion1(cat_outs[j],x_categ[:,j])
-                loss += opt.lam2*l1 + opt.lam3*l2    
+                loss += opt.lam2*l1 + opt.lam3*l2 
+
+
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
+
         model.eval()
         with torch.no_grad():
             for i, data in enumerate(validloader, 0):
