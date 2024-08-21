@@ -79,19 +79,22 @@ def classification_scores(model, dloader, device, task):
     prob = torch.empty(0).to(device)
     with torch.no_grad():
         for i, data in enumerate(dloader, 0):
-            x_categ, x_cont, y_gts, cat_mask, con_mask = data[0].to(device), data[1].to(device),data[2].to(device),data[3].to(device),data[4].to(device)
-            _ , x_categ_enc, x_cont_enc = embed_data_mask(x_categ, x_cont, cat_mask, con_mask,model)           
+            x_categ, x_cont, y_gts, cat_mask, con_mask = data[0].to(device), data[1].to(device), data[2].to(device), data[3].to(device), data[4].to(device)
+            _, x_categ_enc, x_cont_enc = embed_data_mask(x_categ, x_cont, cat_mask, con_mask, model)
             reps = model.transformer(x_categ_enc, x_cont_enc)
-            y_reps = reps[:,0,:]
+            y_reps = reps[:, 0, :]
             y_outs = model.mlpfory(y_reps)
-            # import ipdb; ipdb.set_trace()   
-            y_test = torch.cat([y_test,y_gts.squeeze().float()],dim=0)
-            y_pred = torch.cat([y_pred,torch.argmax(y_outs, dim=1).float()],dim=0)
+            # Ensure y_gts has at least one dimension
+            y_gts = y_gts.squeeze().float()
+            if y_gts.dim() == 0:
+                y_gts = y_gts.unsqueeze(0)
+            y_test = torch.cat([y_test, y_gts], dim=0)
+            y_pred = torch.cat([y_pred, torch.argmax(y_outs, dim=1).float()], dim=0)
             if task == 'binary':
-                prob = torch.cat([prob,m(y_outs)[:,-1].float()],dim=0)
-     
+                prob = torch.cat([prob, m(y_outs)[:, -1].float()], dim=0)
+
     correct_results_sum = (y_pred == y_test).sum().float()
-    acc = correct_results_sum/y_test.shape[0]*100
+    acc = correct_results_sum / y_test.shape[0] * 100
     auc = 0
     if task == 'binary':
         auc = roc_auc_score(y_score=prob.cpu(), y_true=y_test.cpu())
